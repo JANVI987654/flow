@@ -7,40 +7,94 @@ Move work between states with a single keystroke and peek at issue descriptions 
 ![Demo](./demo.gif)
 
 ## Why
-Opening Jira just to move an issue is slow and breaks focus.  
+Opening a browser just to move an issue is slow and breaks focus.  
 `flow` keeps the common actions fast, local, and keyboard-driven.
 
 This project is intentionally minimal and opinionated.
 
 ## Features
-- Kanban columns with counts
+- Keyboard-first Kanban board
+- Columns and cards loaded from disk (no hardcoded data)
 - One-keystroke transitions (`H` / `L`)
 - Toggle issue description (`Enter`)
-- `hjkl` or arrow-key navigation
-- Clean, Jira-inspired visuals
+- `hjkl` **and** arrow-key navigation
+- Clean, terminal-native visuals
+- Immediate persistence on move (local mode)
 
-## Demo mode
-`flow` currently runs in **demo mode by default** — no Jira connection required.
+## Demo / Local mode
+`flow` runs in **demo mode by default**.
 
-Jira integration is planned, but the current focus is the interaction model and UX.
+Demo data is loaded from files on disk and can be edited directly.
+This makes the demo representative of real usage, not a hardcoded example.
+
+Default demo board location:
+
+```
+boards/demo/
+```
+
+To use a persistent local board:
+
+```bash
+FLOW_PROVIDER=local cargo run
+```
+
+Local boards default to:
+
+```
+~/.config/flow/boards/default
+```
+
+You can override the board location:
+
+```bash
+FLOW_BOARD_PATH=/path/to/board cargo run
+```
+
+## Board format
+Boards are plain files:
+
+- `board.txt` — column definitions and order
+- `cols/<column>/order.txt` — card ordering per column
+- `cols/<column>/<ID>.md` — card content (Markdown)
+
+Example:
+
+```
+boards/demo/
+  board.txt
+  cols/
+    todo/
+      order.txt
+      FLOW-1.md
+      FLOW-2.md
+```
+
+This format is:
+- human-editable
+- diff-friendly
+- resilient to partial edits
 
 ## Keybindings
-- `h` / `l` or `←` / `→` — focus column
-- `j` / `k` or `↓` / `↑` — select issue
-- `H` / `L` — move issue left / right
+- `h` / `l` **or** `←` / `→` — focus column
+- `j` / `k` **or** `↑` / `↓` — select card
+- `H` / `L` — move card left / right
 - `Enter` — toggle description
+- `r` — reload board from disk
 - `Esc` — close description / quit
 - `q` — quit
 
 ## Run
+
 ```bash
 cargo run
 ```
 
 ## Status
+Early, but usable.
 
-Early but usable. Expect breaking changes while the core workflow solidifies.
+The focus is on a solid interaction model, simple persistence, and a testable core.
+Expect breaking changes as features are added.
 
 ## License
-
 MIT

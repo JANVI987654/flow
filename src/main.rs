@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, path::PathBuf, time::Duration};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -14,139 +14,66 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-#[derive(Clone)]
-struct Card {
-    key: String,
-    title: String,
-    description: String,
+mod app;
+mod model;
+mod store_fs;
+
+use app::{Action, App};
+
+fn help_text() -> &'static str {
+    "h/l or ←/→ focus  j/k or ↑/↓ select  H/L move  Enter detail  r refresh  Esc close/quit  q quit"
 }
 
-struct Column {
-    name: &'static str,
-    cards: Vec<Card>,
+fn action_from_key(code: KeyCode) -> Option<Action> {
+    Some(match code {
+        KeyCode::Char('q') => Action::Quit,
+        KeyCode::Esc => Action::CloseOrQuit,
+
+        KeyCode::Char('h') | KeyCode::Left => Action::FocusLeft,
+        KeyCode::Char('l') | KeyCode::Right => Action::FocusRight,
+
+        KeyCode::Char('j') | KeyCode::Down => Action::SelectDown,
+        KeyCode::Char('k') | KeyCode::Up => Action::SelectUp,
+
+        KeyCode::Char('H') => Action::MoveLeft,
+        KeyCode::Char('L') => Action::MoveRight,
+
+        KeyCode::Enter => Action::ToggleDetail,
+        KeyCode::Char('r') => Action::Refresh,
+
+        _ => return None,
+    })
 }
 
-struct App {
-    cols: Vec<Column>,
-    col: usize,
-    row: usize,
-    detail: bool,
-}
+fn board_root() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
-impl App {
-    fn new() -> Self {
-        Self {
-            cols: vec![
-                Column {
-                    name: "TO DO",
-                    cards: vec![
-                        Card {
-                            key: "FLOW-1".into(),
-                            title: "Add counts to column headers".into(),
-                            description: "Show the number of issues in each column.".into(),
-                        },
-                        Card {
-                            key: "FLOW-2".into(),
-                            title: "Keyboard-first transitions".into(),
-                            description: "Move selected issue left/right with one keystroke."
-                                .into(),
-                        },
-                    ],
-                },
-                Column {
-                    name: "IN PROGRESS",
-                    cards: vec![
-                        Card {
-                            key: "FLOW-3".into(),
-                            title: "Detail pane / modal".into(),
-                            description: "Enter toggles detail; it follows selection.".into(),
-                        },
-                        Card {
-                            key: "FLOW-4".into(),
-                            title: "Polish focused column styling".into(),
-                            description: "Subtle focus color; readable defaults.".into(),
-                        },
-                    ],
-                },
-                Column {
-                    name: "IN REVIEW",
-                    cards: vec![Card {
-                        key: "FLOW-5".into(),
-                        title: "Demo data realism pass".into(),
-                        description: "Keep demo neutral and screenshot-friendly.".into(),
-                    }],
-                },
-                Column {
-                    name: "DONE",
-                    cards: vec![Card {
-                        key: "FLOW-6".into(),
-                        title: "Initial ratatui scaffold".into(),
-                        description: "Basic columns + selection + transitions.".into(),
-                    }],
-                },
-            ],
-            col: 0,
-            row: 0,
-            detail: false,
+    if std::env::var("FLOW_PROVIDER").ok().as_deref() == Some("local") {
+        if let Ok(p) = std::env::var("FLOW_LOCAL_PATH") {
+            return PathBuf::from(p);
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(".config/flow/boards/default");
         }
     }
 
-    fn clamp_row(&mut self) {
-        let len = self.cols[self.col].cards.len();
-        self.row = match len {
-            0 => 0,
-            _ => self.row.min(len - 1),
-        };
+    if let Ok(p) = std::env::var("FLOW_BOARD_PATH") {
+        return PathBuf::from(p);
     }
 
-    fn focus(&mut self, delta: isize) {
-        let max = self.cols.len() as isize - 1;
-        self.col = (self.col as isize + delta).clamp(0, max) as usize;
-        self.clamp_row();
-    }
-
-    fn select(&mut self, delta: isize) {
-        let len = self.cols[self.col].cards.len();
-        if len == 0 {
-            self.row = 0;
-            return;
-        }
-        self.row = (self.row as isize + delta).clamp(0, len as isize - 1) as usize;
-    }
-
-    fn move_card(&mut self, dir: isize) {
-        let dst = self.col as isize + dir;
-        if dst < 0 || dst >= self.cols.len() as isize {
-            return;
-        }
-        if self.cols[self.col].cards.is_empty() {
-            return;
-        }
-
-        let dst = dst as usize;
-        let card = self.cols[self.col].cards.remove(self.row);
-        self.cols[dst].cards.push(card);
-
-        self.col = dst;
-        self.clamp_row();
-        if !self.cols[self.col].cards.is_empty() {
-            self.row = self.cols[self.col].cards.len() - 1;
-        }
-    }
-
-    fn focused_card(&self) -> Option<&Card> {
-        self.cols.get(self.col).and_then(|c| c.cards.get(self.row))
-    }
+    manifest_dir.join("boards/demo")
 }
 
 fn main() -> io::Result<()> {
+    let root = board_root();
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run(&mut terminal);
+    let res = run(&mut terminal, root);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -154,120 +81,186 @@ fn main() -> io::Result<()> {
     res
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut app = App::new();
+fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, root: PathBuf) -> io::Result<()> {
+    let board = match store_fs::load_board(&root) {
+        Ok(b) => b,
+        Err(e) => {
+            let mut app = App::new(model::Board { columns: vec![] });
+            app.banner = Some(format!("Load failed: {e}"));
+            loop {
+                terminal.draw(|f| render(f, &app))?;
+                if event::poll(Duration::from_millis(50))? {
+                    if let Event::Key(k) = event::read()? {
+                        if k.kind == KeyEventKind::Press
+                            && matches!(k.code, KeyCode::Char('q') | KeyCode::Esc)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+    };
+
+    let mut app = App::new(board);
 
     loop {
         terminal.draw(|f| render(f, &app))?;
-        if handle_events(&mut app)? {
-            break Ok(());
-        }
-    }
-}
 
-fn handle_events(app: &mut App) -> io::Result<bool> {
-    match event::read()? {
-        Event::Key(k) if k.kind == KeyEventKind::Press => match k.code {
-            KeyCode::Char('q') => return Ok(true),
-
-            KeyCode::Esc => {
-                if app.detail {
-                    app.detail = false;
-                } else {
-                    return Ok(true);
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(k) = event::read()? {
+                if k.kind == KeyEventKind::Press {
+                    if let Some(a) = action_from_key(k.code) {
+                        match a {
+                            Action::MoveLeft => {
+                                if let Some((card, dst)) = app.optimistic_move(-1) {
+                                    if let Err(e) = store_fs::move_card(&root, &card, &dst) {
+                                        app.banner = Some(format!("Move failed: {e}"));
+                                    }
+                                }
+                            }
+                            Action::MoveRight => {
+                                if let Some((card, dst)) = app.optimistic_move(1) {
+                                    if let Err(e) = store_fs::move_card(&root, &card, &dst) {
+                                        app.banner = Some(format!("Move failed: {e}"));
+                                    }
+                                }
+                            }
+                            Action::Refresh => match store_fs::load_board(&root) {
+                                Ok(b) => {
+                                    app.board = b;
+                                    app.col = 0;
+                                    app.row = 0;
+                                    app.banner = None;
+                                }
+                                Err(e) => app.banner = Some(format!("Refresh failed: {e}")),
+                            },
+                            _ => {
+                                if app.apply(a) {
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
-
-            KeyCode::Char('h') | KeyCode::Left => app.focus(-1),
-            KeyCode::Char('l') | KeyCode::Right => app.focus(1),
-
-            KeyCode::Char('j') | KeyCode::Down => app.select(1),
-            KeyCode::Char('k') | KeyCode::Up => app.select(-1),
-
-            KeyCode::Char('H') => app.move_card(-1),
-            KeyCode::Char('L') => app.move_card(1),
-
-            KeyCode::Enter => app.detail = !app.detail,
-
-            _ => {}
-        },
-        _ => {}
+        }
     }
-    Ok(false)
+
+    Ok(())
 }
 
 fn render(f: &mut Frame, app: &App) {
-    let [main, help] = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(2)])
-        .split(f.area())[..]
-        .try_into()
-        .unwrap();
+    let chunks = if app.banner.is_some() {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Min(1),
+                Constraint::Length(2),
+            ])
+            .split(f.area())
+    } else {
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(2)])
+            .split(f.area())
+    };
 
-    let rects = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(vec![
-            Constraint::Ratio(1, app.cols.len() as u32);
-            app.cols.len()
-        ])
-        .split(main);
+    let (banner_area, main, help) = if app.banner.is_some() {
+        (Some(chunks[0]), chunks[1], chunks[2])
+    } else {
+        (None, chunks[0], chunks[1])
+    };
 
-    for (i, r) in rects.iter().enumerate() {
-        draw_col(f, app, i, *r);
+    if let (Some(a), Some(text)) = (banner_area, app.banner.as_deref()) {
+        f.render_widget(
+            Paragraph::new(Span::styled(text, Style::default().fg(Color::Yellow))),
+            a,
+        );
+    }
+
+    if app.board.columns.is_empty() {
+        f.render_widget(
+            Paragraph::new("No columns found. Check board.txt.")
+                .block(Block::default().borders(Borders::ALL)),
+            main,
+        );
+    } else {
+        let rects = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Ratio(1, app.board.columns.len() as u32);
+                app.board.columns.len()
+            ])
+            .split(main);
+
+        for (i, r) in rects.iter().enumerate() {
+            draw_col(f, app, i, *r);
+        }
     }
 
     f.render_widget(
-        Paragraph::new("h/l focus  j/k select  H/L move  Enter detail  Esc close/quit  q quit")
-            .block(Block::default().borders(Borders::TOP)),
+        Paragraph::new(help_text()).block(Block::default().borders(Borders::TOP)),
         help,
     );
 
     if app.detail {
-        if let Some(card) = app.focused_card() {
-            let area = centered(70, 45, f.area());
-            f.render_widget(Clear, area);
-            f.render_widget(
-                Paragraph::new(vec![
-                    Line::from(Span::styled(
-                        &card.key,
-                        Style::default().add_modifier(Modifier::BOLD),
-                    )),
-                    Line::from(""),
-                    Line::from(card.title.clone()),
-                    Line::from(""),
-                    Line::from(card.description.clone()),
-                ])
-                .wrap(Wrap { trim: true })
-                .block(
-                    Block::default()
-                        .title("Detail")
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                ),
-                area,
-            );
+        let Some(col) = app.board.columns.get(app.col) else {
+            return;
+        };
+        let Some(card) = col.cards.get(app.row) else {
+            return;
+        };
+
+        let area = centered(70, 45, f.area());
+        f.render_widget(Clear, area);
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            &card.id,
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(card.title.clone()));
+        lines.push(Line::from(""));
+
+        if card.description.trim().is_empty() {
+            lines.push(Line::from(Span::styled(
+                "No description",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            for l in card.description.lines() {
+                lines.push(Line::from(l.to_string()));
+            }
         }
+
+        f.render_widget(
+            Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+                Block::default()
+                    .title("Detail")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            ),
+            area,
+        );
     }
 }
 
 fn draw_col(f: &mut Frame, app: &App, idx: usize, rect: Rect) {
-    let col = &app.cols[idx];
+    let col = &app.board.columns[idx];
     let focused = idx == app.col;
 
-    let border = if focused {
-        Color::Cyan
-    } else if col.name == "Done" {
-        Color::DarkGray
-    } else {
-        Color::Gray
-    };
+    let border = if focused { Color::Cyan } else { Color::Gray };
 
     let items: Vec<ListItem> = col
         .cards
         .iter()
         .map(|c| {
             ListItem::new(Line::from(vec![
-                Span::styled(&c.key, Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(&c.id, Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw(" "),
                 Span::raw(c.title.clone()),
             ]))
@@ -277,7 +270,7 @@ fn draw_col(f: &mut Frame, app: &App, idx: usize, rect: Rect) {
     let list = List::new(items)
         .block(
             Block::default()
-                .title(format!("{} ({})", col.name, col.cards.len()))
+                .title(format!("{} ({})", col.title, col.cards.len()))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(border)),
         )
