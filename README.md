@@ -33,10 +33,10 @@ Default demo board location:
 boards/demo/
 ```
 
-To use a persistent local board:
+To use a persistent local board, point `FLOW_BOARD_PATH` at the board directory:
 
 ```bash
-FLOW_PROVIDER=local cargo run
+FLOW_BOARD_PATH=/path/to/board cargo run
 ```
 
 Local boards default to:
@@ -45,10 +45,10 @@ Local boards default to:
 ~/.config/flow/boards/default
 ```
 
-You can override the board location:
+If you want to use the default local board path, set:
 
 ```bash
-FLOW_BOARD_PATH=/path/to/board cargo run
+FLOW_PROVIDER=local cargo run
 ```
 
 ## Board format

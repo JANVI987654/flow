@@ -1,4 +1,4 @@
-use std::{io, path::PathBuf, time::Duration};
+use std::{io, time::Duration};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -16,10 +16,11 @@ use ratatui::{
 
 mod app;
 mod model;
+mod provider;
+mod provider_local;
 mod store_fs;
 
 use app::{Action, App};
-
 fn help_text() -> &'static str {
     "h/l or ←/→ focus  j/k or ↑/↓ select  H/L move  Enter detail  r refresh  Esc close/quit  q quit"
 }
@@ -45,35 +46,14 @@ fn action_from_key(code: KeyCode) -> Option<Action> {
     })
 }
 
-fn board_root() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-
-    if std::env::var("FLOW_PROVIDER").ok().as_deref() == Some("local") {
-        if let Ok(p) = std::env::var("FLOW_LOCAL_PATH") {
-            return PathBuf::from(p);
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            return PathBuf::from(home).join(".config/flow/boards/default");
-        }
-    }
-
-    if let Ok(p) = std::env::var("FLOW_BOARD_PATH") {
-        return PathBuf::from(p);
-    }
-
-    manifest_dir.join("boards/demo")
-}
-
 fn main() -> io::Result<()> {
-    let root = board_root();
-
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run(&mut terminal, root);
+    let res = run(&mut terminal);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -81,8 +61,10 @@ fn main() -> io::Result<()> {
     res
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, root: PathBuf) -> io::Result<()> {
-    let board = match store_fs::load_board(&root) {
+fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+    let mut provider = provider::from_env();
+
+    let board = match provider.load_board() {
         Ok(b) => b,
         Err(e) => {
             let mut app = App::new(model::Board { columns: vec![] });
@@ -114,20 +96,20 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, root: PathBuf) -> 
                     if let Some(a) = action_from_key(k.code) {
                         match a {
                             Action::MoveLeft => {
-                                if let Some((card, dst)) = app.optimistic_move(-1) {
-                                    if let Err(e) = store_fs::move_card(&root, &card, &dst) {
+                                if let Some((card_id, dst)) = app.optimistic_move(-1) {
+                                    if let Err(e) = provider.move_card(&card_id, &dst) {
                                         app.banner = Some(format!("Move failed: {e}"));
                                     }
                                 }
                             }
                             Action::MoveRight => {
-                                if let Some((card, dst)) = app.optimistic_move(1) {
-                                    if let Err(e) = store_fs::move_card(&root, &card, &dst) {
+                                if let Some((card_id, dst)) = app.optimistic_move(1) {
+                                    if let Err(e) = provider.move_card(&card_id, &dst) {
                                         app.banner = Some(format!("Move failed: {e}"));
                                     }
                                 }
                             }
-                            Action::Refresh => match store_fs::load_board(&root) {
+                            Action::Refresh => match provider.load_board() {
                                 Ok(b) => {
                                     app.board = b;
                                     app.col = 0;
