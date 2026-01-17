@@ -1,4 +1,11 @@
-use std::{io, time::Duration};
+use std::{
+    collections::VecDeque,
+    io,
+    panic,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread,
+    time::Duration,
+};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -22,6 +29,7 @@ mod provider_local;
 mod store_fs;
 
 use app::{Action, App};
+
 fn help_text() -> &'static str {
     "h/l or ←/→ focus  j/k or ↑/↓ select  H/L move  Enter detail  r refresh  Esc close/quit  q quit"
 }
@@ -87,8 +95,44 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
     };
 
     let mut app = App::new(board);
+    type MoveOutcome = Result<Option<model::Board>, String>;
+    let mut move_rx: Option<Receiver<MoveOutcome>> = None;
+    let mut move_queue: VecDeque<(String, String)> = VecDeque::new();
+    const MAX_QUEUE_SIZE: usize = 64;
 
     loop {
+        if let Some(rx) = move_rx.as_ref() {
+            match rx.try_recv() {
+                Ok(Ok(Some(board))) => {
+                    app.board = board;
+                    app.clamp();
+                    app.banner =
+                        Some("Move failed: reloaded board (optimistic state corrected)".to_string());
+                    move_queue.clear(); // Drop queued moves after a failure to avoid compounding errors.
+                    move_rx = None;
+                }
+                Ok(Ok(None)) => {
+                    move_rx = None;
+                    if let Some((card_id, dst)) = move_queue.pop_front() {
+                        move_rx = Some(spawn_move(card_id, dst));
+                        app.banner = Some(format!("Moving... ({} queued)", move_queue.len()));
+                    } else {
+                        app.banner = None;
+                    }
+                }
+                Ok(Err(msg)) => {
+                    app.banner = Some(format!("Move failed: {msg}"));
+                    move_queue.clear();
+                    move_rx = None;
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    app.banner = Some("Move failed: worker disconnected".to_string());
+                    move_rx = None;
+                }
+            }
+        }
+
         terminal.draw(|f| render(f, &app))?;
 
         if event::poll(Duration::from_millis(50))? {
@@ -98,15 +142,43 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
                         match a {
                             Action::MoveLeft => {
                                 if let Some((card_id, dst)) = app.optimistic_move(-1) {
-                                    if let Err(e) = provider.move_card(&card_id, &dst) {
-                                        app.banner = Some(format!("Move failed: {e}"));
+                                    if move_rx.is_some() {
+                                        if move_queue.len() < MAX_QUEUE_SIZE {
+                                            move_queue.push_back((card_id, dst));
+                                            app.banner = Some(format!(
+                                                "Moving... ({} queued)",
+                                                move_queue.len()
+                                            ));
+                                        } else {
+                                            app.banner = Some(
+                                                "Move queue full — too many pending moves"
+                                                    .to_string(),
+                                            );
+                                        }
+                                    } else {
+                                        move_rx = Some(spawn_move(card_id, dst));
+                                        app.banner = Some("Moving...".to_string());
                                     }
                                 }
                             }
                             Action::MoveRight => {
                                 if let Some((card_id, dst)) = app.optimistic_move(1) {
-                                    if let Err(e) = provider.move_card(&card_id, &dst) {
-                                        app.banner = Some(format!("Move failed: {e}"));
+                                    if move_rx.is_some() {
+                                        if move_queue.len() < MAX_QUEUE_SIZE {
+                                            move_queue.push_back((card_id, dst));
+                                            app.banner = Some(format!(
+                                                "Moving... ({} queued)",
+                                                move_queue.len()
+                                            ));
+                                        } else {
+                                            app.banner = Some(
+                                                "Move queue full — too many pending moves"
+                                                    .to_string(),
+                                            );
+                                        }
+                                    } else {
+                                        move_rx = Some(spawn_move(card_id, dst));
+                                        app.banner = Some("Moving...".to_string());
                                     }
                                 }
                             }
@@ -132,6 +204,32 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> 
     }
 
     Ok(())
+}
+
+fn spawn_move(card_id: String, dst: String) -> Receiver<Result<Option<model::Board>, String>> {
+    let (tx, rx) = mpsc::channel::<Result<Option<model::Board>, String>>();
+    thread::spawn(move || {
+        let res = panic::catch_unwind(|| {
+            let mut p = provider::from_env();
+            match p.move_card(&card_id, &dst) {
+                Ok(()) => {
+                    let _ = tx.send(Ok(None));
+                }
+                Err(move_err) => match p.load_board() {
+                    Ok(board) => {
+                        let _ = tx.send(Ok(Some(board)));
+                    }
+                    Err(_) => {
+                        let _ = tx.send(Err(move_err.to_string()));
+                    }
+                },
+            }
+        });
+        if res.is_err() {
+            let _ = tx.send(Err("worker panicked".to_string()));
+        }
+    });
+    rx
 }
 
 fn render(f: &mut Frame, app: &App) {
