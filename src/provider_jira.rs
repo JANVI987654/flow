@@ -258,10 +258,7 @@ impl Provider for JiraProvider {
             let cfg = self.board_config(board_id)?;
             let map = board_config_map(&cfg);
             if let Some(status_ids) = map.column_to_status.get(to_col_id) {
-                if let Some(t) = transitions
-                    .iter()
-                    .find(|t| status_ids.iter().any(|id| id == &t.to.id))
-                {
+                if let Some(t) = pick_transition_for_column(&transitions, to_col_id, status_ids) {
                     transition_id = Some(t.id.clone());
                 }
             }
@@ -409,6 +406,43 @@ fn board_config_map(cfg: &BoardConfigResponse) -> BoardConfigMap {
     }
 }
 
+fn pick_transition_for_column<'a>(
+    transitions: &'a [Transition],
+    column_name: &str,
+    status_ids: &[String],
+) -> Option<&'a Transition> {
+    let col = column_name.to_lowercase();
+    let prefs: &[&str] = if col.contains("todo") || col.contains("to do") {
+        &["open", "backlog"]
+    } else if col.contains("progress") {
+        &["in progress"]
+    } else if col.contains("review") {
+        &["in review", "review"]
+    } else if col.contains("test") || col.contains("qa") {
+        &["in testing", "testing", "qa"]
+    } else if col.contains("done") {
+        &["done", "resolved", "closed", "verified"]
+    } else {
+        &[]
+    };
+
+    let mut first_match = None;
+    for t in transitions {
+        if !status_ids.iter().any(|id| id == &t.to.id) {
+            continue;
+        }
+        let name = t.to.name.to_lowercase();
+        if !prefs.is_empty() && prefs.iter().any(|p| name.contains(p)) {
+            return Some(t);
+        }
+        if first_match.is_none() {
+            first_match = Some(t);
+        }
+    }
+
+    first_match
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -458,5 +492,30 @@ mod tests {
         assert_eq!(map.order, vec!["To Do", "In Progress"]);
         assert_eq!(map.column_to_status["To Do"], vec!["1"]);
         assert_eq!(map.column_to_status["In Progress"], vec!["3", "4"]);
+    }
+
+    #[test]
+    fn pick_transition_prefers_open_for_todo() {
+        let transitions = vec![
+            Transition {
+                id: "2".to_string(),
+                to: Status {
+                    id: "2".to_string(),
+                    name: "Selected for Development".to_string(),
+                },
+            },
+            Transition {
+                id: "1".to_string(),
+                to: Status {
+                    id: "1".to_string(),
+                    name: "Open".to_string(),
+                },
+            },
+        ];
+
+        let status_ids = vec!["1".to_string(), "2".to_string()];
+        let t = pick_transition_for_column(&transitions, "To Do", &status_ids).unwrap();
+
+        assert_eq!(t.to.name, "Open");
     }
 }
