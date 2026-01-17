@@ -34,8 +34,7 @@ impl App {
     }
 
     fn reset_cursor(&mut self) {
-        self.col = 0;
-        self.row = 0;
+        (self.col, self.row) = (0, 0);
     }
 
     fn clamp_index(idx: usize, delta: isize, max: usize) -> usize {
@@ -59,6 +58,26 @@ impl App {
         self.row = if len == 0 { 0 } else { self.row.min(len - 1) };
     }
 
+    fn next_non_empty_col(&self, step: isize) -> Option<usize> {
+        if step == 0 {
+            return None;
+        }
+
+        let mut idx = self.col as isize;
+        let len = self.board.columns.len() as isize;
+
+        loop {
+            idx += step;
+            if idx < 0 || idx >= len {
+                return None;
+            }
+            let col = &self.board.columns[idx as usize];
+            if !col.cards.is_empty() {
+                return Some(idx as usize);
+            }
+        }
+    }
+
     fn dst_col(&self, dir: isize) -> Option<usize> {
         let dst = self.col as isize + dir;
         if dst < 0 {
@@ -78,14 +97,17 @@ impl App {
         self.clamp_row();
     }
 
-    pub fn focus(&mut self, delta: isize) {
+    pub fn focus(&mut self, dir: isize) {
         if self.board.columns.is_empty() {
             self.reset_cursor();
             return;
         }
 
-        self.col = Self::clamp_index(self.col, delta, self.board.columns.len() - 1);
-        self.clamp_row();
+        let dir = dir.signum();
+        if let Some(next) = self.next_non_empty_col(dir) {
+            self.col = next;
+            self.clamp_row();
+        }
     }
 
     pub fn select(&mut self, delta: isize) {
@@ -200,13 +222,21 @@ mod tests {
     }
 
     #[test]
-    fn focus_clamps_left_and_right() {
+    fn focus_skips_empty_columns() {
         let mut app = App::new(board_two_cols());
 
         app.focus(-1);
         assert_eq!(app.col, 0);
 
         app.focus(10);
+        assert_eq!(app.col, 0);
+
+        app.board.columns[1].cards.push(Card {
+            id: "3".into(),
+            title: "t3".into(),
+            description: "d".into(),
+        });
+        app.focus(1);
         assert_eq!(app.col, 1);
     }
 
