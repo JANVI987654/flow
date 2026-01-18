@@ -450,7 +450,8 @@ fn jira_description_text(desc: Option<&serde_json::Value>) -> String {
         serde_json::Value::String(s) => s.clone(),
         _ => {
             let mut out = String::new();
-            collect_rich_text(desc, &mut out);
+            let mut state = RichTextState::new();
+            collect_rich_text(desc, &mut out, &mut state);
             out.lines()
                 .map(str::trim)
                 .filter(|l| !l.is_empty())
@@ -460,7 +461,27 @@ fn jira_description_text(desc: Option<&serde_json::Value>) -> String {
     }
 }
 
-fn collect_rich_text(node: &serde_json::Value, out: &mut String) {
+struct RichTextState {
+    at_line_start: bool,
+}
+
+impl RichTextState {
+    fn new() -> Self {
+        Self { at_line_start: true }
+    }
+
+    fn push_text(&mut self, out: &mut String, text: &str) {
+        out.push_str(text);
+        self.at_line_start = false;
+    }
+
+    fn push_newline(&mut self, out: &mut String) {
+        out.push('\n');
+        self.at_line_start = true;
+    }
+}
+
+fn collect_rich_text(node: &serde_json::Value, out: &mut String, state: &mut RichTextState) {
     use serde_json::Value;
 
     match node {
@@ -468,33 +489,35 @@ fn collect_rich_text(node: &serde_json::Value, out: &mut String) {
             let ty = map.get("type").and_then(Value::as_str);
 
             if let Some(text) = map.get("text").and_then(Value::as_str) {
-                out.push_str(text);
+                state.push_text(out, text);
             }
 
             if ty == Some("hardBreak") {
-                out.push('\n');
+                state.push_newline(out);
+            }
+
+            if ty == Some("listItem") {
+                if state.at_line_start {
+                    state.push_text(out, "- ");
+                } else {
+                    state.push_newline(out);
+                    state.push_text(out, "- ");
+                }
             }
 
             if let Some(Value::Array(content)) = map.get("content") {
                 for child in content {
-                    collect_rich_text(child, out);
+                    collect_rich_text(child, out, state);
                 }
             }
 
-            if matches!(
-                ty,
-                Some("paragraph")
-                    | Some("heading")
-                    | Some("blockquote")
-                    | Some("listItem")
-                    | Some("codeBlock")
-            ) {
-                out.push('\n');
+            if matches!(ty, Some("paragraph") | Some("listItem")) {
+                state.push_newline(out);
             }
         }
         Value::Array(arr) => {
             for child in arr {
-                collect_rich_text(child, out);
+                collect_rich_text(child, out, state);
             }
         }
         _ => {}
@@ -598,5 +621,47 @@ mod tests {
         });
 
         assert_eq!(jira_description_text(Some(&desc)), "Hello\nWorld");
+    }
+
+    #[test]
+    fn jira_description_extracts_list() {
+        let desc = serde_json::json!({
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [
+                                        { "type": "text", "text": "First" }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [
+                                        { "type": "text", "text": "Second" }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        });
+
+        assert_eq!(
+            jira_description_text(Some(&desc)),
+            "- First\n- Second"
+        );
     }
 }
