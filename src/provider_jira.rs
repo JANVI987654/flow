@@ -496,6 +496,17 @@ fn collect_rich_text(node: &serde_json::Value, out: &mut String, state: &mut Ric
                 state.push_newline(out);
             }
 
+            if ty == Some("inlineCard") {
+                if let Some(url) = map
+                    .get("attrs")
+                    .and_then(Value::as_object)
+                    .and_then(|attrs| attrs.get("url"))
+                    .and_then(Value::as_str)
+                {
+                    state.push_text(out, url);
+                }
+            }
+
             if ty == Some("listItem") {
                 if state.at_line_start {
                     state.push_text(out, "- ");
@@ -663,5 +674,23 @@ mod tests {
             jira_description_text(Some(&desc)),
             "- First\n- Second"
         );
+    }
+
+    #[test]
+    fn jira_description_extracts_inline_card() {
+        let desc = serde_json::json!({
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        { "type": "inlineCard", "attrs": { "url": "https://example.com" } }
+                    ]
+                }
+            ]
+        });
+
+        assert_eq!(jira_description_text(Some(&desc)), "https://example.com");
     }
 }
